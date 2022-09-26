@@ -20,8 +20,8 @@ from sw2002_vectorbased_pll import sw_matrix_optim
 # make neat wrapper. 
 
 def cppyy_sw2002(micntde, nmics):
-    as_vectdouble = cppyy.gbl.std.vector[float](micntde.tolist())
-    as_Vxd = cppyy.gbl.sw_matrix_optim(as_vectdouble, nmics)
+    as_Vxd = cppyy.gbl.sw_matrix_optim(cppyy.gbl.std.vector[float](micntde.tolist()),
+                                       nmics)
     return np.array(as_Vxd, dtype=np.float64)
     
 uu = np.array([0.1, 0.6, 0.9,
@@ -31,7 +31,7 @@ uu = np.array([0.1, 0.6, 0.9,
  			18.1, 99.1, 123.1,
  			12.1, 13.1, 14.1, 19.1], dtype=np.float64)
 uu[-4:] *= 1e-3
-nruns = 50000
+nruns = 100000
 #np.random.seed(82319)
 nmics = 5
 ncols = nmics*3 + nmics-1
@@ -56,6 +56,7 @@ for i in range(nruns):
 stop = time.perf_counter_ns()/1e9
 avg_cpy = (stop-start)/nruns
 print(f'time taken for cppyy {nruns} runs: {avg_cpy*1e6} micro s ')
+print(f'Overall time taken Eigen: {stop-start} s')
 
 #%%
 
@@ -65,6 +66,7 @@ for i in range(nruns):
 stop = time.perf_counter_ns()/1e9
 avg_numpy = (stop-start)/nruns
 print(f'time taken for NumPy {nruns} runs: {avg_numpy*1e6} micro s ')
+print(f'Overall time taken NumPy: {stop-start} s')
 
 assert np.allclose(all_solutions_cpy, all_solutions_numpy, atol=1e-3)==True
 print(f'\n \n Overall speedup by using Eigen: {avg_numpy/avg_cpy}')

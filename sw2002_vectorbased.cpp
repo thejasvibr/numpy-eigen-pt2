@@ -33,8 +33,11 @@ vector<double> to_vectdouble(const VectorXd &VXd)
 	return vectdouble;
 	}
 
-vector<double> sw_matrix_optim(vector<double> mic_ntde_raw, const int nmics, const double c=343.0){
+vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nmics, const double &c=343.0){
 	/*
+	TODO: THE PSEUDOINVERSE CALCULATION NEEDS TO BE FIXED!! IT IS QUICK AND DIRTY RIGHT NOW!!!!!!
+	IT'S REAAAALLLY DIRTY -- SOMETIMES ~A FEW METERS DIFFERENCE BETWEEN NUMPY AND EIGEN RESULTS!!!
+	
 	mic_ntde is 1D vector<double> with nmics*3 + Nmics-1 entries. 
 	The entries are organised so: m0_x.1, m0_y.1, m0_z.1,..mNmics_x.1,mNmics_y.1, mNmics_z.1, tde10...tdeNmics0
 	*/
