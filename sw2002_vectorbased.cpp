@@ -1,5 +1,7 @@
+#include <omp.h>
 #include <iostream>
 #include <chrono>
+#include <unistd.h>
 #include <Eigen/Dense>
 #include <Eigen/QR>
 #include <cmath>
@@ -35,8 +37,6 @@ vector<double> to_vectdouble(const VectorXd &VXd)
 
 vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nmics, const double &c=343.0){
 	/*
-	TODO: THE PSEUDOINVERSE CALCULATION NEEDS TO BE FIXED!! IT IS QUICK AND DIRTY RIGHT NOW!!!!!!
-	IT'S REAAAALLLY DIRTY -- SOMETIMES ~A FEW METERS DIFFERENCE BETWEEN NUMPY AND EIGEN RESULTS!!!
 	
 	mic_ntde is 1D vector<double> with nmics*3 + Nmics-1 entries. 
 	The entries are organised so: m0_x.1, m0_y.1, m0_z.1,..mNmics_x.1,mNmics_y.1, mNmics_z.1, tde10...tdeNmics0
@@ -63,8 +63,13 @@ vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nm
 		mic_ntde(seq(starts[i],stops[i])) +=  -mic0;
 		}
 	R = mic_ntde(seq(3,position_inds-1)).reshaped(3,nmics-1).transpose();
-	R_inv = R.completeOrthogonalDecomposition().pseudoInverse();
-
+	
+	MatrixXd Eye(R.rows(),R.rows());
+    Eye = MatrixXd::Zero(R.rows(), R.rows());
+    Eye.diagonal() = VectorXd::Ones(R.rows());
+	
+    //R_inv = R.colPivHouseholderQr().solve(Eye);
+	R_inv = R.fullPivHouseholderQr().solve(Eye);
 	for (int i=0; i < nmics-1; i++){
 	b(i) = pow(R.row(i).norm(),2) - pow(c*tau(i),2);
 	f(i) = (c*c)*tau(i);
@@ -90,6 +95,56 @@ vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nm
 	return solutions;
 }
 
+// for some reason cppyy throws an error if const double &c=343.0!
+vector<vector<double>> blockwise_sw_optim(const vector<vector<double>> &block_inputs, const vector<int> &block_nmics, const double c=343.0){
+	vector<vector<double>> block_solutions(block_inputs.size());
+	for (int i=0; i<block_inputs.size(); i++){
+		block_solutions[i] = sw_matrix_optim(block_inputs[i], block_nmics[i], c);
+	}
+	return block_solutions;
+	}
+
+
+
+std::vector<std::vector<int>> split(const std::vector<int>& v, int Nsplit) {
+	// thanks to @Damien : https://stackoverflow.com/a/66173799/4955732
+    int n = v.size();
+    int size_max = n / Nsplit + (n % Nsplit != 0);
+    std::vector<std::vector<int>> split;
+    for (int ibegin = 0; ibegin < n; ibegin += size_max) {
+        int iend = ibegin + size_max;
+        if (iend > n) iend = n;
+        split.emplace_back (std::vector<int>(v.begin() + ibegin, v.begin() + iend));
+    }
+    return split;
+}
+
+int pll_sw_optim(vector<vector<double>> all_inputs, vector<int> &all_nmics, int num_cores, const double c=343.0){
+	// vector<vector<double>> flattened_output(all_inputs.size());
+	vector<vector<vector<double>>> all_block_outputs(num_cores);
+	//
+	std::cout << "HIIIIII " << std::endl;
+	vector<vector<vector<double>>> blockwise_inputs(num_cores);
+	vector<vector<int>> blockwise_nummics(num_cores);
+	// split up all_inputs and all_nmics according to num_cores
+	vector<int> all_indices(all_inputs.size());
+			
+	for (int i=0; i<all_inputs.size(); i++){
+		all_indices[i] = i;
+		}
+	
+	vector<vector<int>> blockwise_indices = split(all_indices, num_cores);
+	
+	for (int block = 0; block < num_cores; block++) {
+		std::cout << "block num  " << block << std::endl;
+		for (int index : blockwise_indices[block]){
+			std::cout << "index: "  << index << std::endl;
+			blockwise_inputs[block].push_back(all_inputs[index]);
+			}
+		}
+
+	return 0;
+					}
 
 int main(){
 	std::vector<double> qq {0.1, 0.1, 0.1,
@@ -97,15 +152,51 @@ int main(){
 			68.1, 7.1,  8.1,
 			9.1,  158.1, 117.1,
 			18.1, 99.1, 123.1,
-			12.1, 13.1, 14.1, 19.1};
+			0.001, -.001, 0.002, 0.005};
 	//VectorXd mictde = to_VXd(qq);
 	
 	int n_mics = 5;
 	vector<double> output;
+	auto start = chrono::steady_clock::now();
 	output = sw_matrix_optim(qq, n_mics);
+	auto stop = chrono::steady_clock::now();
+	double durn1 = chrono::duration_cast<chrono::microseconds>(stop - start).count();
+	std::cout <<  durn1 << " micro s"<< std::endl;
 	for (auto ii : output){
 		std::cout << ii  << std::endl;
 	}
 	
+	// Now run the parallelised version 
+	int nruns = 90;
+	vector<vector<double>> block_in(nruns);
+	int pll_out;
+	vector<int> block_nmics(block_in.size());
+	
+	std::cout << block_in.size() << std::endl;
+	for (int i=0; i < block_in.size(); i++){
+		block_in[i] = qq;
+		block_nmics[i] = n_mics;
+	}
+	auto start2 = chrono::steady_clock::now();
+	vector<vector<double>> all_outs(nruns);
+	#pragma omp parallel for
+	for (int i=0; i<block_in.size(); i++){
+		all_outs[i] = sw_matrix_optim(block_in[i], block_nmics[i]);
+	}
+	auto stop2 = chrono::steady_clock::now();
+	double durn2 = chrono::duration_cast<chrono::microseconds>(stop2 - start2).count();
+	std::cout << durn2 << " pll micro s"<< std::endl;
+	
+	// Now finally try to run the actual pll function
+	start2 = chrono::steady_clock::now();
+	pll_out = pll_sw_optim(block_in, block_nmics, 3, 343.0);
+	stop2 = chrono::steady_clock::now();
+	durn2 = chrono::duration_cast<chrono::microseconds>(stop2 - start2).count();
+	std::cout << durn2 << " FN pll micro s"<< std::endl;
+	
+	std::cout << "Obtained speedup: " << nruns*durn1/durn2 << std::endl;
+	std::cout << "Serial run output: " << to_VXd(output) << std::endl;
+	//std::cout << "Pll run output: " << to_VXd(pll_out[0]) << std::endl;
+
 	return 0;	
 }

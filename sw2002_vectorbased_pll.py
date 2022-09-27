@@ -9,10 +9,12 @@ Created on Mon Sep 26 13:40:03 2022
 """
 
 import numpy as np
+import scipy.spatial as spl
+euclid = spl.distance.euclidean
 #np.random.seed(82319) 
 matmul = np.matmul
 
-    
+
 def sw_matrix_optim(mic_ntde_orig, nmics, c=343.0):
     '''
     mic_ntde : 3*nmics + nmics-1
@@ -28,7 +30,8 @@ def sw_matrix_optim(mic_ntde_orig, nmics, c=343.0):
     tau = mic_ntde[-(nmics-1):]/c
     R = mic_ntde[3:position_inds].reshape(-1,3)
     
-    R_inv = np.linalg.pinv(R)
+    # R_inv = np.linalg.pinv(R)
+    R_inv,*_  = np.linalg.lstsq(R, np.eye(R.shape[0]))
 
     Nrec_minus1 = R.shape[0]
     b = np.zeros(Nrec_minus1)
@@ -59,3 +62,39 @@ def sw_matrix_optim(mic_ntde_orig, nmics, c=343.0):
     s12[:3] += mic0
     s12[3:] += mic0
     return s12
+
+
+def choose_correct_solution(sources, array_geom, rangediffs, **kwargs):
+    '''
+    The Spiesberger-Wahlberg 2002 method always provides 2 potential solutions.
+    The authors themselves suggest comparing the observed channel 5 and 1
+    time difference ():math:`\tau_{51}` ) and the predicted :math:`\tau_{51}`
+    from each source to see which one is a better fit. 
+
+    Parameters
+    ----------
+    sources : list
+        List with 2 sources. Each source is a (3,)/(3,1) np.array
+    array_geom : (Nmics, M) np.array
+    rangediffs : (N-1,) np.array
+        Range differences to reference microphone. 
+
+    Returns
+    -------
+    valid_solution : (3)/(3,1) np.array
+        The correct solution of the two potential solutions.
+    '''
+    tau_ch1_sources = [rangediff_pair(each, 4, array_geom) for each in sources]
+    residuals = [rangediffs[3]-tauch1 for tauch1 in tau_ch1_sources]
+    
+    # choose the source with lower rangediff residuals
+    lower_error_source = np.argmin(np.abs(residuals))
+    valid_solution = sources[lower_error_source]
+    return valid_solution
+
+def rangediff_pair(source, chX, array_geom):
+    ch0_dist = euclid(source, array_geom[0,:])
+    chX_dist = euclid(source, array_geom[chX,:])
+    return chX_dist - ch0_dist
+
+
