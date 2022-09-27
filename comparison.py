@@ -14,13 +14,14 @@ try:
     import os 
     os.environ['EXTRA_CLING_ARGS'] = '-fopenmp'
     pch_path = os.getcwd()
-    import cppyy_backend.loader as l
-    l.set_cling_compile_options(True)
-    l.ensure_precompiled_header(pch_path)
-    full_path = glob.glob(pch_path+'/allD*')[0]
-    os.environ['CLING_STANDARD_PCH'] = full_path
+    #import cppyy_backend.loader as l
+    #l.set_cling_compile_options(True)
+    #l.ensure_precompiled_header(pch_path)
+    #full_path = glob.glob(pch_path+'/allD*')[0]
+    #os.environ['CLING_STANDARD_PCH'] = full_path
     import cppyy
-    cppyy.load_library('/home/thejasvi/anaconda3/lib/libiomp5.so')
+    #cppyy.load_library('/home/thejasvi/anaconda3/lib/libiomp5.so')
+    cppyy.load_library('/home/autumn/anaconda3/lib/libiomp5.so')
     cppyy.add_include_path('../np_vs_eigen/eigen')
     cppyy.include('sw2002_vectorbased.cpp')
 except ImportError:

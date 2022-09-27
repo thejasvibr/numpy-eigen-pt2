@@ -97,6 +97,9 @@ vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nm
 
 // for some reason cppyy throws an error if const double &c=343.0!
 vector<vector<double>> blockwise_sw_optim(const vector<vector<double>> &block_inputs, const vector<int> &block_nmics, const double c=343.0){
+	/*
+	Accepts a 'block' of mic-posns+TDEs as a vector<double>
+	*/
 	vector<vector<double>> block_solutions(block_inputs.size());
 	for (int i=0; i<block_inputs.size(); i++){
 		block_solutions[i] = sw_matrix_optim(block_inputs[i], block_nmics[i], c);
@@ -120,12 +123,13 @@ std::vector<std::vector<int>> split(const std::vector<int>& v, int Nsplit) {
 }
 
 int pll_sw_optim(vector<vector<double>> all_inputs, vector<int> &all_nmics, int num_cores, const double c=343.0){
-	// vector<vector<double>> flattened_output(all_inputs.size());
+	vector<vector<double>> flattened_output;
 	vector<vector<vector<double>>> all_block_outputs(num_cores);
 	//
 	std::cout << "HIIIIII " << std::endl;
 	vector<vector<vector<double>>> blockwise_inputs(num_cores);
 	vector<vector<int>> blockwise_nummics(num_cores);
+	
 	// split up all_inputs and all_nmics according to num_cores
 	vector<int> all_indices(all_inputs.size());
 			
@@ -134,15 +138,32 @@ int pll_sw_optim(vector<vector<double>> all_inputs, vector<int> &all_nmics, int 
 		}
 	
 	vector<vector<int>> blockwise_indices = split(all_indices, num_cores);
-	
+	int inner_k = 0;
 	for (int block = 0; block < num_cores; block++) {
-		std::cout << "block num  " << block << std::endl;
-		for (int index : blockwise_indices[block]){
-			std::cout << "index: "  << index << std::endl;
+		//std::cout << "block num  " << block << std::endl;
+		blockwise_inputs[block] = {};
+		blockwise_nummics[block] = {};
+		for (auto index : blockwise_indices[block]){
+			//std::cout << "index: "  << index << std::endl;
 			blockwise_inputs[block].push_back(all_inputs[index]);
+			blockwise_nummics[block].push_back(all_nmics[index]);
 			}
 		}
 
+	// Now run the parallelisable code
+	#pragma omp parallel for
+	for (int block = 0; block < num_cores; block++){
+		all_block_outputs[block] = blockwise_sw_optim(blockwise_inputs[block], blockwise_nummics[block], c);
+		}
+	
+	flattened_output = {};
+	for (int block=0; block<num_cores; block++){
+		
+		for (auto solution : all_block_outputs[block]){
+			flattened_output.push_back(solution);
+		}
+	}
+	
 	return 0;
 					}
 
@@ -161,13 +182,13 @@ int main(){
 	output = sw_matrix_optim(qq, n_mics);
 	auto stop = chrono::steady_clock::now();
 	double durn1 = chrono::duration_cast<chrono::microseconds>(stop - start).count();
-	std::cout <<  durn1 << " micro s"<< std::endl;
+	
 	for (auto ii : output){
 		std::cout << ii  << std::endl;
 	}
 	
 	// Now run the parallelised version 
-	int nruns = 90;
+	int nruns = 50000;
 	vector<vector<double>> block_in(nruns);
 	int pll_out;
 	vector<int> block_nmics(block_in.size());
@@ -177,26 +198,26 @@ int main(){
 		block_in[i] = qq;
 		block_nmics[i] = n_mics;
 	}
-	auto start2 = chrono::steady_clock::now();
-	vector<vector<double>> all_outs(nruns);
-	#pragma omp parallel for
-	for (int i=0; i<block_in.size(); i++){
-		all_outs[i] = sw_matrix_optim(block_in[i], block_nmics[i]);
+	// run the whole code without parallelism
+	std::cout << "Serial run starting... " << std::endl;
+	auto start1 = chrono::steady_clock::now(); 
+	vector<vector<double>> serial_out(nruns);
+	for (int i=0; i<nruns; i++){
+		serial_out[i] = sw_matrix_optim(qq, n_mics);
 	}
-	auto stop2 = chrono::steady_clock::now();
-	double durn2 = chrono::duration_cast<chrono::microseconds>(stop2 - start2).count();
-	std::cout << durn2 << " pll micro s"<< std::endl;
-	
-	// Now finally try to run the actual pll function
-	start2 = chrono::steady_clock::now();
-	pll_out = pll_sw_optim(block_in, block_nmics, 3, 343.0);
-	stop2 = chrono::steady_clock::now();
-	durn2 = chrono::duration_cast<chrono::microseconds>(stop2 - start2).count();
-	std::cout << durn2 << " FN pll micro s"<< std::endl;
-	
-	std::cout << "Obtained speedup: " << nruns*durn1/durn2 << std::endl;
-	std::cout << "Serial run output: " << to_VXd(output) << std::endl;
-	//std::cout << "Pll run output: " << to_VXd(pll_out[0]) << std::endl;
+	auto stop1 = chrono::steady_clock::now();
+	durn1 = chrono::duration_cast<chrono::microseconds>(stop1-start1).count();
+	std::cout << durn1 << " Serial s"<< std::endl;
 
+	// Now finally try to run the actual pll function
+	std::cout << "Parallel run starting... " << std::endl;
+	auto start2 = chrono::steady_clock::now();
+	pll_out = pll_sw_optim(block_in, block_nmics, 4, 343.0);
+	auto stop2 = chrono::steady_clock::now();
+	auto durn2 = chrono::duration_cast<chrono::microseconds>(stop2 - start2).count();
+	std::cout << durn2 << " FN pll s"<< std::endl;
+	
+	std::cout << "Obtained speedup: " << durn1/durn2 << std::endl;
+	
 	return 0;	
 }
