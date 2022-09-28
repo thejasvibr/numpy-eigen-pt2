@@ -2,10 +2,13 @@
 #include <iostream>
 #include <chrono>
 #include <unistd.h>
+#include <Eigen/Core>
 #include <Eigen/Dense>
 #include <Eigen/QR>
 #include <cmath>
 #include <vector>
+
+
 
 using Eigen::Matrix;
 using Eigen::MatrixXd;
@@ -122,11 +125,11 @@ std::vector<std::vector<int>> split(const std::vector<int>& v, int Nsplit) {
     return split;
 }
 
-int pll_sw_optim(vector<vector<double>> all_inputs, vector<int> &all_nmics, int num_cores, const double c=343.0){
+vector<vector<double>> pll_sw_optim(vector<vector<double>> all_inputs, vector<int> &all_nmics, int num_cores, double c=343.0){
+	Eigen::initParallel();
 	vector<vector<double>> flattened_output;
 	vector<vector<vector<double>>> all_block_outputs(num_cores);
-	//
-	std::cout << "HIIIIII " << std::endl;
+	
 	vector<vector<vector<double>>> blockwise_inputs(num_cores);
 	vector<vector<int>> blockwise_nummics(num_cores);
 	
@@ -140,11 +143,9 @@ int pll_sw_optim(vector<vector<double>> all_inputs, vector<int> &all_nmics, int 
 	vector<vector<int>> blockwise_indices = split(all_indices, num_cores);
 	int inner_k = 0;
 	for (int block = 0; block < num_cores; block++) {
-		//std::cout << "block num  " << block << std::endl;
 		blockwise_inputs[block] = {};
 		blockwise_nummics[block] = {};
 		for (auto index : blockwise_indices[block]){
-			//std::cout << "index: "  << index << std::endl;
 			blockwise_inputs[block].push_back(all_inputs[index]);
 			blockwise_nummics[block].push_back(all_nmics[index]);
 			}
@@ -154,6 +155,7 @@ int pll_sw_optim(vector<vector<double>> all_inputs, vector<int> &all_nmics, int 
 	#pragma omp parallel for
 	for (int block = 0; block < num_cores; block++){
 		all_block_outputs[block] = blockwise_sw_optim(blockwise_inputs[block], blockwise_nummics[block], c);
+		
 		}
 	
 	flattened_output = {};
@@ -164,10 +166,11 @@ int pll_sw_optim(vector<vector<double>> all_inputs, vector<int> &all_nmics, int 
 		}
 	}
 	
-	return 0;
+	return flattened_output;
 					}
 
 int main(){
+	
 	std::vector<double> qq {0.1, 0.1, 0.1,
 			3.61, 54.1, 51.1,
 			68.1, 7.1,  8.1,
@@ -188,9 +191,9 @@ int main(){
 	}
 	
 	// Now run the parallelised version 
-	int nruns = 50000;
+	int nruns = 500000;
 	vector<vector<double>> block_in(nruns);
-	int pll_out;
+	vector<vector<double>> pll_out;
 	vector<int> block_nmics(block_in.size());
 	
 	std::cout << block_in.size() << std::endl;
@@ -212,7 +215,7 @@ int main(){
 	// Now finally try to run the actual pll function
 	std::cout << "Parallel run starting... " << std::endl;
 	auto start2 = chrono::steady_clock::now();
-	pll_out = pll_sw_optim(block_in, block_nmics, 4, 343.0);
+	pll_out = pll_sw_optim(block_in, block_nmics, 8, 343.0);
 	auto stop2 = chrono::steady_clock::now();
 	auto durn2 = chrono::duration_cast<chrono::microseconds>(stop2 - start2).count();
 	std::cout << durn2 << " FN pll s"<< std::endl;

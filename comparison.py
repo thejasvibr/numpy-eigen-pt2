@@ -13,7 +13,7 @@ import time
 try:
     import os 
     os.environ['EXTRA_CLING_ARGS'] = '-fopenmp'
-    pch_path = os.getcwd()
+    #pch_path = os.getcwd()
     #import cppyy_backend.loader as l
     #l.set_cling_compile_options(True)
     #l.ensure_precompiled_header(pch_path)
@@ -21,7 +21,8 @@ try:
     #os.environ['CLING_STANDARD_PCH'] = full_path
     import cppyy
     #cppyy.load_library('/home/thejasvi/anaconda3/lib/libiomp5.so')
-    cppyy.load_library('/home/autumn/anaconda3/lib/libiomp5.so')
+    cppyy.load_library('/usr/lib/llvm-9/lib/libiomp5.so')
+    #cppyy.load_library('/home/autumn/anaconda3/lib/libiomp5.so')
     cppyy.add_include_path('../np_vs_eigen/eigen')
     cppyy.include('sw2002_vectorbased.cpp')
 except ImportError:
@@ -42,9 +43,9 @@ uu = np.array([0.1, 0.6, 0.9,
  			18.1, 99.1, 123.1,
  			12.1, 13.1, 14.1, 19.1], dtype=np.float64)
 uu[-4:] *= 1e-3
-nruns = 100000
+nruns = 500000
 #np.random.seed(82319)
-nmics = 5
+nmics = 10
 ncols = nmics*3 + nmics-1
 many_u = np.random.normal(0,1,ncols*nruns).reshape(nruns,ncols)
 many_u[:,-(nmics-1):] *= 1e-3
@@ -105,25 +106,27 @@ print(f'\n \n Overall speedup by using Eigen: {avg_numpy/avg_cpy}')
 nonmatching = np.argwhere(np.abs(all_solutions_cpy-all_solutions_numpy)>1e-3)
 nonmatching_rows = np.unique(nonmatching[:,0])
 
+
 #%% Here let's also run the pll version. 
 
-def pll_cppyy_sw2002(many_micntde, many_nmics, c):
+def pll_cppyy_sw2002(many_micntde, many_nmics, num_cores, c):
     block_in = cppyy.gbl.std.vector[cppyy.gbl.std.vector[float]](many_micntde.shape[0])
     block_mics = cppyy.gbl.std.vector[int](many_micntde.shape[0])
-    #c_cpp = cppyy.cppdef("double c=343.0;")
     
     for i in range(many_micntde.shape[0]):
         block_in[i] = cppyy.gbl.std.vector[float](many_micntde[i,:].tolist())
         block_mics[i] = int(many_nmics[i])
-
-    block_out = cppyy.gbl.pll_sw_optim(block_in, block_mics, c)
+    block_out = cppyy.gbl.pll_sw_optim(block_in, block_mics, num_cores, c)
     return block_out
 
 many_mcs = np.tile(nmics, many_u.shape[0]).tolist()
+ncores = os.cpu_count()
 st = time.perf_counter_ns()
-uu = pll_cppyy_sw2002(many_u, many_mcs, 343.0)
+uu = pll_cppyy_sw2002(many_u, many_mcs, ncores, 343.0)
 stop = time.perf_counter_ns()
 pll_durn = (stop-st)/1e9
 print(f'OMP pll version takes: {pll_durn} s')
+print(f'Pll vs Serial speedup : {avg_cpy/(pll_durn/nruns)}')
 
+    
 
