@@ -61,10 +61,12 @@ def sw_matrix_optim(mic_ntde_orig, nmics, c=343.0):
 
     s12[:3] += mic0
     s12[3:] += mic0
-    return s12
+    final_solution = choose_correct_solution(s12, mic_ntde[:nmics*3].reshape(-1,3),
+                                             tau*c)
+    return final_solution
 
 
-def choose_correct_solution(sources, array_geom, rangediffs, **kwargs):
+def choose_correct_solution(all_sources, array_geom, rangediffs, **kwargs):
     '''
     The Spiesberger-Wahlberg 2002 method always provides 2 potential solutions.
     The authors themselves suggest comparing the observed channel 5 and 1
@@ -84,17 +86,18 @@ def choose_correct_solution(sources, array_geom, rangediffs, **kwargs):
     valid_solution : (3)/(3,1) np.array
         The correct solution of the two potential solutions.
     '''
+    sources = [all_sources[:3], all_sources[3:]]
     tau_ch1_sources = [rangediff_pair(each, 4, array_geom) for each in sources]
     residuals = [rangediffs[3]-tauch1 for tauch1 in tau_ch1_sources]
-    
+
     # choose the source with lower rangediff residuals
     lower_error_source = np.argmin(np.abs(residuals))
     valid_solution = sources[lower_error_source]
     return valid_solution
 
 def rangediff_pair(source, chX, array_geom):
-    ch0_dist = euclid(source, array_geom[0,:])
-    chX_dist = euclid(source, array_geom[chX,:])
+    ch0_dist = np.linalg.norm((source-array_geom[0,:]))
+    chX_dist = np.linalg.norm(source- array_geom[chX,:])
     return chX_dist - ch0_dist
 
 

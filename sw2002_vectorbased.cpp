@@ -7,11 +7,12 @@
 #include <Eigen/QR>
 #include <cmath>
 #include <vector>
-
-
+#include <stdexcept>
+#define EIGEN_DONT_PARALLELIZE
 
 using Eigen::Matrix;
 using Eigen::MatrixXd;
+using Eigen::Vector3d;
 using Eigen::VectorXd;
 using Eigen::Dynamic;
 using Eigen::ArithmeticSequence;
@@ -38,15 +39,58 @@ vector<double> to_vectdouble(const VectorXd &VXd)
 	return vectdouble;
 	}
 
+double rangediff_pair(Vector3d source, int chX, MatrixXd all_mic_posns){
+	double ch0_dist, chX_dist;
+	double rangediff;
+	ch0_dist = (source - VectorXd(all_mic_posns.row(0))).norm();
+	chX_dist = (source - VectorXd(all_mic_posns.row(chX))).norm();
+	rangediff = chX_dist - ch0_dist;
+	return rangediff;
+	}
+
+
+VectorXd choose_correct_solution(VectorXd both_solutions, const VectorXd &rangediff, VectorXd all_micxyz){
+	Vector3d solution1, solution2;
+	MatrixXd array_geom;
+	solution1 = both_solutions.head(3);
+	solution2 = both_solutions.tail(3);
+	vector<double> calculated_tdes(2);
+	vector<double> residuals(2);
+	// Get predicted TDEs from predicted source locations
+	int nmics = all_micxyz.size()/3;
+	array_geom = all_micxyz.reshaped(3,nmics).transpose();
+
+	calculated_tdes[0] = rangediff_pair(solution1, 4, array_geom);
+	calculated_tdes[1] = rangediff_pair(solution2, 4, array_geom);
+    
+	residuals[0] = abs(rangediff[3] - calculated_tdes[0]);
+	residuals[1] = abs(rangediff[3] - calculated_tdes[1]);
+	// Whichever solution results in the lower TDE residual is returned
+	if (residuals[0] < residuals[1]){
+		return solution1;
+	}
+	else if (residuals[1] < residuals[0]){
+		return solution2;
+	} else if (residuals[0] == residuals[1]){
+		throw std::invalid_argument( "received negative value" );
+	}
+
+	}
+
+
 vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nmics, const double &c=343.0){
 	/*
 	
 	mic_ntde is 1D vector<double> with nmics*3 + Nmics-1 entries. 
-	The entries are organised so: m0_x.1, m0_y.1, m0_z.1,..mNmics_x.1,mNmics_y.1, mNmics_z.1, tde10...tdeNmics0
+	The entries are organised so: m0_x.1, m0_y.1, m0_z.1,..mNmics_x.1,mNmics_y.1, mNmics_z.1, D10...DNmics0
+	
+	Where D is the RANGE DIFFERENCE!!!
+	
 	*/
+	Vector3d best_solution;
 	VectorXd mic_ntde = to_VXd(mic_ntde_raw);
 	VectorXd solutions_vx(6);
-	vector<double> solutions(6);
+	vector<double> solution(3);
 	double a1,a2,a3; 
     double a_quad, b_quad, c_quad;
     double t_soln1, t_soln2;
@@ -88,14 +132,14 @@ vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nm
 
     t_soln1 = (-b_quad + sqrt(pow(b_quad,2) - 4*a_quad*c_quad))/(2*a_quad);
     t_soln2 = (-b_quad - sqrt(pow(b_quad,2) - 4*a_quad*c_quad))/(2*a_quad);	
-	
 
     solutions_vx(seq(0,2)) = R_inv*b*0.5 - (R_inv*f)*t_soln1;
 	solutions_vx(seq(0,2)) += mic0;
     solutions_vx(seq(3,5)) = R_inv*b*0.5 - (R_inv*f)*t_soln2;
 	solutions_vx(seq(3,5)) += mic0;
-	solutions = to_vectdouble(solutions_vx);
-	return solutions;
+	best_solution = choose_correct_solution(solutions_vx, tau*c, mic_ntde.head(nmics*3));
+	solution = to_vectdouble(best_solution);
+	return solution;
 }
 
 // for some reason cppyy throws an error if const double &c=343.0!
@@ -126,7 +170,7 @@ std::vector<std::vector<int>> split(const std::vector<int>& v, int Nsplit) {
 }
 
 vector<vector<double>> pll_sw_optim(vector<vector<double>> all_inputs, vector<int> &all_nmics, int num_cores, double c=343.0){
-	Eigen::initParallel();
+	//Eigen::initParallel();
 	vector<vector<double>> flattened_output;
 	vector<vector<vector<double>>> all_block_outputs(num_cores);
 	
@@ -152,6 +196,7 @@ vector<vector<double>> pll_sw_optim(vector<vector<double>> all_inputs, vector<in
 		}
 
 	// Now run the parallelisable code
+	//omp_set_num_threads(num_cores);
 	#pragma omp parallel for
 	for (int block = 0; block < num_cores; block++){
 		all_block_outputs[block] = blockwise_sw_optim(blockwise_inputs[block], blockwise_nummics[block], c);
@@ -171,12 +216,12 @@ vector<vector<double>> pll_sw_optim(vector<vector<double>> all_inputs, vector<in
 
 int main(){
 	
-	std::vector<double> qq {0.1, 0.1, 0.1,
-			3.61, 54.1, 51.1,
-			68.1, 7.1,  8.1,
-			9.1,  158.1, 117.1,
-			18.1, 99.1, 123.1,
-			0.001, -.001, 0.002, 0.005};
+	std::vector<double> qq {0.1, 0.6, 0.9,
+ 			3.61, 54.1, 51.1,
+ 			68.1, 7.1,  8.1,
+ 			9.1,  158.1, 117.1,
+ 			18.1, 99.1, 123.1,
+			12.1*.343, 13.1*.343, 14.1*.343, 19.1*.343};
 	//VectorXd mictde = to_VXd(qq);
 	
 	int n_mics = 5;
@@ -191,7 +236,7 @@ int main(){
 	}
 	
 	// Now run the parallelised version 
-	int nruns = 500000;
+	int nruns = 50000;
 	vector<vector<double>> block_in(nruns);
 	vector<vector<double>> pll_out;
 	vector<int> block_nmics(block_in.size());
@@ -221,6 +266,14 @@ int main(){
 	std::cout << durn2 << " FN pll s"<< std::endl;
 	
 	std::cout << "Obtained speedup: " << durn1/durn2 << std::endl;
+	
+	VectorXd corr_soln;
+	//corr_soln = choose_correct_solution(
+	MatrixXd reshaped = to_VXd(qq).head(15).reshaped(3,5).transpose();
+	VectorXd correct_soln;
+	VectorXd bothsoln, tau, micxyz;
+	bothsoln = to_VXd(serial_out[0]);
+	std::cout << "Both Solns " << bothsoln << std::endl;
 	
 	return 0;	
 }

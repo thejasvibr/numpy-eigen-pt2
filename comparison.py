@@ -13,12 +13,12 @@ import time
 try:
     import os 
     os.environ['EXTRA_CLING_ARGS'] = '-fopenmp'
-    #pch_path = os.getcwd()
-    #import cppyy_backend.loader as l
-    #l.set_cling_compile_options(True)
-    #l.ensure_precompiled_header(pch_path)
-    #full_path = glob.glob(pch_path+'/allD*')[0]
-    #os.environ['CLING_STANDARD_PCH'] = full_path
+    pch_path = os.getcwd()
+    import cppyy_backend.loader as l
+    l.set_cling_compile_options(True)
+    l.ensure_precompiled_header(pch_path)
+    full_path = glob.glob(pch_path+'/allD*')[0]
+    os.environ['CLING_STANDARD_PCH'] = full_path
     import cppyy
     #cppyy.load_library('/home/thejasvi/anaconda3/lib/libiomp5.so')
     cppyy.load_library('/usr/lib/llvm-9/lib/libiomp5.so')
@@ -27,7 +27,7 @@ try:
     cppyy.include('sw2002_vectorbased.cpp')
 except ImportError:
     pass
-
+np.random.seed(82319)
 from sw2002_vectorbased_pll import sw_matrix_optim
 # make neat wrapper. 
 
@@ -41,11 +41,11 @@ uu = np.array([0.1, 0.6, 0.9,
  			68.1, 7.1,  8.1,
  			9.1,  158.1, 117.1,
  			18.1, 99.1, 123.1,
- 			12.1, 13.1, 14.1, 19.1], dtype=np.float64)
-uu[-4:] *= 1e-3
-nruns = 500000
+			12.1*.343, 13.1*.343, 14.1*.343, 19.1*.343], dtype=np.float64)
+#uu[-4:] *= 1e-3*343.0
+nruns = int(2e5)
 #np.random.seed(82319)
-nmics = 10
+nmics = 5
 ncols = nmics*3 + nmics-1
 many_u = np.random.normal(0,1,ncols*nruns).reshape(nruns,ncols)
 many_u[:,-(nmics-1):] *= 1e-3
@@ -55,56 +55,56 @@ many_u[:,:-(nmics-1)] += np.random.normal(.1,0.5,(ncols-(nmics-1))*nruns).reshap
 aa = sw_matrix_optim(uu, 5)
 bb = cppyy_sw2002(uu, 5)
 
-#%%
-# Warm up the cppyy function by calling it once. 
-all_solutions_cpy = np.zeros((nruns, 6))
-all_solutions_numpy = np.zeros((nruns, 6))
-#%%
-print('miaow \n .....')
-start = time.perf_counter_ns()/1e9
-for i in range(nruns):
-    all_solutions_cpy[i,:] = cppyy_sw2002(many_u[i,:], 5)
-stop = time.perf_counter_ns()/1e9
-avg_cpy = (stop-start)/nruns
-print(f'time taken for cppyy {nruns} runs: {avg_cpy*1e6} micro s ')
-print(f'Overall time taken Eigen: {stop-start} s')
+# #%%
+# # Warm up the cppyy function by calling it once. 
+# all_solutions_cpy = np.zeros((nruns, 3))
+# all_solutions_numpy = np.zeros((nruns, 3))
+# #%%
+# print('miaow \n .....')
+# start = time.perf_counter_ns()/1e9
+# for i in range(nruns):
+#     all_solutions_cpy[i,:] = cppyy_sw2002(many_u[i,:], nmics)
+# stop = time.perf_counter_ns()/1e9
+# avg_cpy = (stop-start)/nruns
+# print(f'time taken for cppyy {nruns} runs: {avg_cpy*1e6} micro s ')
+# print(f'Overall time taken Eigen: {stop-start} s')
 
-#%%
+# #%%
 
-start = time.perf_counter_ns()/1e9
-for i in range(nruns):
-    all_solutions_numpy[i,:] = sw_matrix_optim(many_u[i,:], 5)
-stop = time.perf_counter_ns()/1e9
-avg_numpy = (stop-start)/nruns
-print(f'time taken for NumPy {nruns} runs: {avg_numpy*1e6} micro s ')
-print(f'Overall time taken NumPy: {stop-start} s')
+# start = time.perf_counter_ns()/1e9
+# for i in range(nruns):
+#     all_solutions_numpy[i,:] = sw_matrix_optim(many_u[i,:], nmics)
+# stop = time.perf_counter_ns()/1e9
+# avg_numpy = (stop-start)/nruns
+# print(f'time taken for NumPy {nruns} runs: {avg_numpy*1e6} micro s ')
+# print(f'Overall time taken NumPy: {stop-start} s')
 
-import scipy.spatial as spl
-discrepancy = np.zeros((nruns,2))
-# calculate largest distance between predicted points
-def calc_solution_distances(X,Y):
-    distances = np.zeros(2)
-    distances[0] =  spl.distance.euclidean(X[:3], Y[:3])
-    distances[1] =  spl.distance.euclidean(X[3:], Y[3:])
-    return distances
+# import scipy.spatial as spl
+# discrepancy = np.zeros((nruns,2))
+# # calculate largest distance between predicted points
+# def calc_solution_distances(X,Y):
+#     distances = np.zeros(2)
+#     distances[0] =  spl.distance.euclidean(X[:3], Y[:3])
+#     distances[1] =  spl.distance.euclidean(X[3:], Y[3:])
+#     return distances
     
-for r in range(nruns):
-    discrepancy[r,:] = calc_solution_distances(all_solutions_cpy[r,:],
-                                               all_solutions_numpy[r,:])
+# for r in range(nruns):
+#     discrepancy[r,:] = calc_solution_distances(all_solutions_cpy[r,:],
+#                                                all_solutions_numpy[r,:])
 
-max_discrepancy = np.max(discrepancy,1)
+# max_discrepancy = np.max(discrepancy,1)
 
-print(f'Max discrepancy between NumPy and Eigen QR methods: {np.max(max_discrepancy)}')
+# print(f'Max discrepancy between NumPy and Eigen QR methods: {np.max(max_discrepancy)}')
 
-print(f'\n \n Overall speedup by using Eigen: {avg_numpy/avg_cpy}')
-# assert np.allclose(all_solutions_cpy, all_solutions_numpy, atol=1e-2)==True
+# print(f'\n \n Overall speedup by using Eigen: {avg_numpy/avg_cpy}')
+# # assert np.allclose(all_solutions_cpy, all_solutions_numpy, atol=1e-2)==True
 
-#%% Check where the correspondence drops. Of course, in one case the np.linalg.pinv
-# is using the SVD - a time-intesive method, while the curent Eigen implementation
-# uses the QR method - a faster but less stable version. 
+# #%% Check where the correspondence drops. Of course, in one case the np.linalg.pinv
+# # is using the SVD - a time-intesive method, while the curent Eigen implementation
+# # uses the QR method - a faster but less stable version. 
 
-nonmatching = np.argwhere(np.abs(all_solutions_cpy-all_solutions_numpy)>1e-3)
-nonmatching_rows = np.unique(nonmatching[:,0])
+# nonmatching = np.argwhere(np.abs(all_solutions_cpy-all_solutions_numpy)>1e-3)
+# nonmatching_rows = np.unique(nonmatching[:,0])
 
 
 #%% Here let's also run the pll version. 
@@ -126,7 +126,36 @@ uu = pll_cppyy_sw2002(many_u, many_mcs, ncores, 343.0)
 stop = time.perf_counter_ns()
 pll_durn = (stop-st)/1e9
 print(f'OMP pll version takes: {pll_durn} s')
-print(f'Pll vs Serial speedup : {avg_cpy/(pll_durn/nruns)}')
+# print(f'Pll vs Serial speedup : {avg_cpy/(pll_durn/nruns)}')
 
+#%%
+from joblib import Parallel, delayed
+
+def block_numpy_sw2002(many_micntde, many_nmics,c):
+    rows, _ = many_micntde.shape
+    solutions = np.zeros((rows, 3))
+    
+    for i in range(rows):
+        solutions[i,:] = sw_matrix_optim(many_micntde[i,:], many_nmics[i])
+    return solutions
+
+def pll_numpy_sw2002(many_micntde, many_nmics, c):
+    numcores = os.cpu_count();
+    indices = np.array_split(np.arange(many_micntde.shape[0]), numcores)
+    blocks_micntde = [many_micntde[block,:] for block in indices]
+    blocks_nmics = [many_nmics[block] for block in indices]
+    outputs = Parallel(n_jobs=numcores)(delayed(block_numpy_sw2002)(tde_block, nmic_block,c) for (tde_block, nmic_block) in zip(blocks_micntde, blocks_nmics))
+    return outputs
+
+sta = time.perf_counter_ns()/1e9
+pll_numpy_sw2002(many_u, np.tile(nmics, nruns), 343.0)
+sto = time.perf_counter_ns()/1e9
+pll_np = sto-sta
+print(f'Python Pll total durn: {sto-sta} s')
+
+
+#%%
+print(f' OMP C++ vs Joblib Python: {pll_durn , pll_np}')
+print(f'C++ advantage is: {pll_np/pll_durn}')
     
 
