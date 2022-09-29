@@ -1,16 +1,16 @@
 #include <omp.h>
 #include <iostream>
 #include <chrono>
-#include <unistd.h>
 #include <Eigen/Core>
 #include <Eigen/Dense>
 #include <Eigen/QR>
+#include <Eigen/SVD>
 #include <cmath>
 #include <vector>
 #include <stdexcept>
 #define EIGEN_DONT_PARALLELIZE
 
-using Eigen::Matrix;
+
 using Eigen::MatrixXd;
 using Eigen::Vector3d;
 using Eigen::VectorXd;
@@ -18,6 +18,9 @@ using Eigen::Dynamic;
 using Eigen::ArithmeticSequence;
 using Eigen::seq;
 using Eigen::seqN;
+using Eigen::JacobiSVD;
+using Eigen::ComputeThinU;
+using Eigen::ComputeThinV;
 using namespace std;
 
 VectorXd to_VXd(const vector<double> &Vd){
@@ -101,14 +104,14 @@ vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nm
     VectorXd g(nmics-1);
     VectorXd tau(nmics-1);
 	VectorXd s1(3),s2(3);
-    int position_inds = nmics*3;
+    long long int position_inds = nmics*3;
 	VectorXd mic0 = mic_ntde.head(3);
 	tau = mic_ntde.tail(nmics-1)/c;
 	MatrixXd R(nmics-1,3);
 	MatrixXd R_inv(3, nmics-1);
-	ArithmeticSequence< long int, long int, long int > starts = seq(3, position_inds-3, 3);
-	ArithmeticSequence< long int, long int, long int > stops = seq(5, position_inds-1, 3);
-	for (int i=0; i<starts.size(); i++){
+	ArithmeticSequence< long long int, long long int, long long int > starts = seq(3, position_inds-3, 3);
+	ArithmeticSequence< long long int, long long int, long long int > stops = seq(5, position_inds-1, 3);
+	for (long long int i=0; i<starts.size(); i++){
 		mic_ntde(seq(starts[i],stops[i])) +=  -mic0;
 		}
 	R = mic_ntde(seq(3,position_inds-1)).reshaped(3,nmics-1).transpose();
@@ -118,7 +121,12 @@ vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nm
     Eye.diagonal() = VectorXd::Ones(R.rows());
 	
     //R_inv = R.colPivHouseholderQr().solve(Eye);
-	R_inv = R.fullPivHouseholderQr().solve(Eye);
+	JacobiSVD<MatrixXd> svd;
+	//std::cout << "Starting SVD..." << std::endl;
+	R_inv = svd.compute(R, ComputeThinU | ComputeThinV).solve(Eye); // thanks https://stackoverflow.com/a/72753193/4955732
+	//std::cout << R_inv << std::endl; 
+	//R_inv = R.fullPivHouseholderQr().solve(Eye);
+	//R_inv = R.jacobiSvd().solve(Eye);
 	for (int i=0; i < nmics-1; i++){
 	b(i) = pow(R.row(i).norm(),2) - pow(c*tau(i),2);
 	f(i) = (c*c)*tau(i);
