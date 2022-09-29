@@ -72,7 +72,9 @@ VectorXd choose_correct_solution(VectorXd both_solutions, const VectorXd &ranged
 	else if (residuals[1] < residuals[0]){
 		return solution2;
 	} else if (residuals[0] == residuals[1]){
-		throw std::invalid_argument( "received negative value" );
+		std::cout << both_solutions << std::endl;
+		std::cout << "R0 " << residuals[0] << "R1 " << residuals[1] << std::endl;
+		throw std::invalid_argument( "BOTH RESIDUALS ARE EQUAL!!" );
 	}
 
 	}
@@ -137,6 +139,7 @@ vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nm
 	solutions_vx(seq(0,2)) += mic0;
     solutions_vx(seq(3,5)) = R_inv*b*0.5 - (R_inv*f)*t_soln2;
 	solutions_vx(seq(3,5)) += mic0;
+	//std::cout << "Both Solutions" << solutions_vx << std::endl;
 	best_solution = choose_correct_solution(solutions_vx, tau*c, mic_ntde.head(nmics*3));
 	solution = to_vectdouble(best_solution);
 	return solution;
@@ -216,12 +219,10 @@ vector<vector<double>> pll_sw_optim(vector<vector<double>> all_inputs, vector<in
 
 int main(){
 	
-	std::vector<double> qq {0.1, 0.6, 0.9,
- 			3.61, 54.1, 51.1,
- 			68.1, 7.1,  8.1,
- 			9.1,  158.1, 117.1,
- 			18.1, 99.1, 123.1,
-			12.1*.343, 13.1*.343, 14.1*.343, 19.1*.343};
+	std::vector<double> qq {-0.52243083,  1.09867957, -2.40144351,  2.50031827,  0.4962326 ,
+        1.65670346, -2.85711394,  0.83103252,  0.18204941, -1.49302528,
+       -0.87956487, -0.99915339, -0.31283492,  0.66902459,  1.36570803,
+       -0.16360789,  0.04602658,  0.02142374,  0.0499198 };
 	//VectorXd mictde = to_VXd(qq);
 	
 	int n_mics = 5;
@@ -236,7 +237,7 @@ int main(){
 	}
 	
 	// Now run the parallelised version 
-	int nruns = 50000;
+	int nruns = 10000;
 	vector<vector<double>> block_in(nruns);
 	vector<vector<double>> pll_out;
 	vector<int> block_nmics(block_in.size());

@@ -20,14 +20,14 @@ try:
     full_path = glob.glob(pch_path+'/allD*')[0]
     os.environ['CLING_STANDARD_PCH'] = full_path
     import cppyy
-    #cppyy.load_library('/home/thejasvi/anaconda3/lib/libiomp5.so')
-    cppyy.load_library('/usr/lib/llvm-9/lib/libiomp5.so')
+    cppyy.load_library('/home/thejasvi/anaconda3/lib/libiomp5.so')
+    #cppyy.load_library('/usr/lib/llvm-9/lib/libiomp5.so')
     #cppyy.load_library('/home/autumn/anaconda3/lib/libiomp5.so')
     cppyy.add_include_path('../np_vs_eigen/eigen')
     cppyy.include('sw2002_vectorbased.cpp')
 except ImportError:
     pass
-np.random.seed(82319)
+np.random.seed(8239)
 from sw2002_vectorbased_pll import sw_matrix_optim
 # make neat wrapper. 
 
@@ -43,70 +43,40 @@ uu = np.array([0.1, 0.6, 0.9,
  			18.1, 99.1, 123.1,
 			12.1*.343, 13.1*.343, 14.1*.343, 19.1*.343], dtype=np.float64)
 #uu[-4:] *= 1e-3*343.0
-nruns = int(2e5)
-#np.random.seed(82319)
+nruns = int(2e4)
+np.random.seed(8239)
 nmics = 5
 ncols = nmics*3 + nmics-1
 many_u = np.random.normal(0,1,ncols*nruns).reshape(nruns,ncols)
-many_u[:,-(nmics-1):] *= 1e-3
-many_u[:,:-(nmics-1)] += np.random.normal(.1,0.5,(ncols-(nmics-1))*nruns).reshape(nruns,ncols-(nmics-1))
+# many_u = np.random.choice(np.linspace(-1,1,100), ncols*nruns).reshape(nruns, ncols)
+# many_u[:,-(nmics-1):] *= 1e-2
+#many_u[:,:-(nmics-1)] += np.random.normal(.1,0.5,(ncols-(nmics-1))*nruns).reshape(nruns,ncols-(nmics-1))
+
+def make_mock_data(nmics):
+    xyz_range = np.linspace(-5,5,1000)
+    micxyz = np.random.choice(xyz_range, nmics*3).reshape(-1,3)
+    source = np.random.choice(xyz_range, 3)
+    mic_to_source_dist = np.apply_along_axis(np.linalg.norm, 1, micxyz-source)
+    R_ref0 = mic_to_source_dist[1:] - mic_to_source_dist[0]
+    output = np.concatenate((micxyz.flatten(), R_ref0)).flatten()
+    return output, source
+
+many_u = np.zeros((nruns,ncols))
+sources = np.zeros((nruns,3))
+for i in range(nruns):
+    many_u[i,:], thissource = make_mock_data(nmics)
+    sources[i,:] = thissource
 #%%
 # 'Warm up' the cppyy function run by calling it once3. 
-aa = sw_matrix_optim(uu, 5)
-bb = cppyy_sw2002(uu, 5)
 
-# #%%
-# # Warm up the cppyy function by calling it once. 
-# all_solutions_cpy = np.zeros((nruns, 3))
-# all_solutions_numpy = np.zeros((nruns, 3))
-# #%%
-# print('miaow \n .....')
-# start = time.perf_counter_ns()/1e9
-# for i in range(nruns):
-#     all_solutions_cpy[i,:] = cppyy_sw2002(many_u[i,:], nmics)
-# stop = time.perf_counter_ns()/1e9
-# avg_cpy = (stop-start)/nruns
-# print(f'time taken for cppyy {nruns} runs: {avg_cpy*1e6} micro s ')
-# print(f'Overall time taken Eigen: {stop-start} s')
+for i in range(many_u.shape[0]):
+    #print(f"III : {i} \n")
+    #aa = sw_matrix_optim(many_u[i,:], nmics)
+        bb = cppyy_sw2002(many_u[i,:], nmics)
+        print(f'{i} index')
 
-# #%%
-
-# start = time.perf_counter_ns()/1e9
-# for i in range(nruns):
-#     all_solutions_numpy[i,:] = sw_matrix_optim(many_u[i,:], nmics)
-# stop = time.perf_counter_ns()/1e9
-# avg_numpy = (stop-start)/nruns
-# print(f'time taken for NumPy {nruns} runs: {avg_numpy*1e6} micro s ')
-# print(f'Overall time taken NumPy: {stop-start} s')
-
-# import scipy.spatial as spl
-# discrepancy = np.zeros((nruns,2))
-# # calculate largest distance between predicted points
-# def calc_solution_distances(X,Y):
-#     distances = np.zeros(2)
-#     distances[0] =  spl.distance.euclidean(X[:3], Y[:3])
-#     distances[1] =  spl.distance.euclidean(X[3:], Y[3:])
-#     return distances
-    
-# for r in range(nruns):
-#     discrepancy[r,:] = calc_solution_distances(all_solutions_cpy[r,:],
-#                                                all_solutions_numpy[r,:])
-
-# max_discrepancy = np.max(discrepancy,1)
-
-# print(f'Max discrepancy between NumPy and Eigen QR methods: {np.max(max_discrepancy)}')
-
-# print(f'\n \n Overall speedup by using Eigen: {avg_numpy/avg_cpy}')
-# # assert np.allclose(all_solutions_cpy, all_solutions_numpy, atol=1e-2)==True
-
-# #%% Check where the correspondence drops. Of course, in one case the np.linalg.pinv
-# # is using the SVD - a time-intesive method, while the curent Eigen implementation
-# # uses the QR method - a faster but less stable version. 
-
-# nonmatching = np.argwhere(np.abs(all_solutions_cpy-all_solutions_numpy)>1e-3)
-# nonmatching_rows = np.unique(nonmatching[:,0])
-
-
+    #print(aa, bb)
+print('Done with serial fun')
 #%% Here let's also run the pll version. 
 
 def pll_cppyy_sw2002(many_micntde, many_nmics, num_cores, c):

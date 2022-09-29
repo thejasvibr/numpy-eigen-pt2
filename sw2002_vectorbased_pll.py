@@ -18,6 +18,7 @@ matmul = np.matmul
 def sw_matrix_optim(mic_ntde_orig, nmics, c=343.0):
     '''
     mic_ntde : 3*nmics + nmics-1
+    The last nmics-1 entries are range differences in meters!!
     '''
     mic_ntde = mic_ntde_orig.copy()
     #print(mic_ntde.shape)
@@ -31,7 +32,7 @@ def sw_matrix_optim(mic_ntde_orig, nmics, c=343.0):
     R = mic_ntde[3:position_inds].reshape(-1,3)
     
     # R_inv = np.linalg.pinv(R)
-    R_inv,*_  = np.linalg.lstsq(R, np.eye(R.shape[0]))
+    R_inv,*_  = np.linalg.lstsq(R, np.eye(R.shape[0]), rcond=None)
 
     Nrec_minus1 = R.shape[0]
     b = np.zeros(Nrec_minus1)
@@ -61,6 +62,7 @@ def sw_matrix_optim(mic_ntde_orig, nmics, c=343.0):
 
     s12[:3] += mic0
     s12[3:] += mic0
+    #print(s12)
     final_solution = choose_correct_solution(s12, mic_ntde[:nmics*3].reshape(-1,3),
                                              tau*c)
     return final_solution
