@@ -10,7 +10,7 @@
 #include <stdexcept>
 #define EIGEN_DONT_PARALLELIZE
 
-
+	
 using Eigen::MatrixXd;
 using Eigen::Vector3d;
 using Eigen::VectorXd;
@@ -22,6 +22,27 @@ using Eigen::JacobiSVD;
 using Eigen::ComputeThinU;
 using Eigen::ComputeThinV;
 using namespace std;
+
+/*
+// from http://eigen.tuxfamily.org/index.php?title=FAQ#Is_there_a_method_to_compute_the_.28Moore-Penrose.29_pseudo_inverse_.3F
+template<typename MatType>
+using PseudoInverseType = Eigen::Matrix<typename MatType::Scalar, MatType::ColsAtCompileTime, MatType::RowsAtCompileTime>;
+
+template<typename MatType>
+PseudoInverseType<MatType> pseudoInverse(const MatType &a, double epsilon = std::numeric_limits<double>::epsilon())
+{
+	using WorkingMatType = Eigen::Matrix<typename MatType::Scalar, Eigen::Dynamic, Eigen::Dynamic, 0,
+																			 MatType::MaxRowsAtCompileTime, MatType::MaxColsAtCompileTime>;
+	Eigen::BDCSVD<WorkingMatType> svd(a, Eigen::ComputeThinU | Eigen::ComputeThinV);
+	svd.setThreshold(epsilon*std::max(a.cols(), a.rows()));
+	Eigen::Index rank = svd.rank();
+	Eigen::Matrix<typename MatType::Scalar, Eigen::Dynamic, MatType::RowsAtCompileTime,
+								0, Eigen::BDCSVD<WorkingMatType>::MaxDiagSizeAtCompileTime, MatType::MaxRowsAtCompileTime>
+		tmp = svd.matrixU().leftCols(rank).adjoint();
+	tmp = svd.singularValues().head(rank).asDiagonal().inverse() * tmp;
+	return svd.matrixV().leftCols(rank) * tmp;
+}*/
+
 
 VectorXd to_VXd(const vector<double> &Vd){
 	VectorXd VXd(Vd.size());
@@ -75,9 +96,10 @@ VectorXd choose_correct_solution(VectorXd both_solutions, const VectorXd &ranged
 	else if (residuals[1] < residuals[0]){
 		return solution2;
 	} else if (residuals[0] == residuals[1]){
-		std::cout << both_solutions << std::endl;
-		std::cout << "R0 " << residuals[0] << "R1 " << residuals[1] << std::endl;
-		throw std::invalid_argument( "BOTH RESIDUALS ARE EQUAL!!" );
+		//std::cout << "Rangediff "<< rangediff.transpose() << std::endl;
+		//throw std::invalid_argument( "BOTH RESIDUALS ARE EQUAL!!" );
+		// BAD PRACTICE - BUT PUTTING IT NOW SO MY CODE CALLS DON'T ALWAYS CRASH COMPLETELY!
+		return to_VXd(vector<double>{-999,-999,-999});
 	}
 
 	}
@@ -92,12 +114,14 @@ vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nm
 	Where D is the RANGE DIFFERENCE!!!
 	
 	*/
+	//std::cout<<"Miaow "<< std::endl;
 	Vector3d best_solution;
+	VectorXd mic_ntde_raw_vx = to_VXd(mic_ntde_raw);
 	VectorXd mic_ntde = to_VXd(mic_ntde_raw);
 	VectorXd solutions_vx(6);
 	vector<double> solution(3);
 	double a1,a2,a3; 
-    double a_quad, b_quad, c_quad;
+    double a_quad,b_quad, c_quad;
     double t_soln1, t_soln2;
     VectorXd b(nmics-1);
     VectorXd f(nmics-1);
@@ -121,12 +145,15 @@ vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nm
     Eye.diagonal() = VectorXd::Ones(R.rows());
 	
     //R_inv = R.colPivHouseholderQr().solve(Eye);
-	JacobiSVD<MatrixXd> svd;
-	//std::cout << "Starting SVD..." << std::endl;
-	R_inv = svd.compute(R, ComputeThinU | ComputeThinV).solve(Eye); // thanks https://stackoverflow.com/a/72753193/4955732
+	//double epsilon = std::numeric_limits<double>::epsilon();
+	//acobiSVD<MatrixXd> svd; // thanks https://gist.github.com/pshriwise/67c2ae78e5db3831da38390a8b2a209f
+	//R_inv = svd.compute(R, ComputeThinU | ComputeThinV).solve(Eye); // thanks https://stackoverflow.com/a/72753193/4955732
 	//std::cout << R_inv << std::endl; 
-	//R_inv = R.fullPivHouseholderQr().solve(Eye);
-	//R_inv = R.jacobiSvd().solve(Eye);
+	R_inv = R.fullPivHouseholderQr().solve(Eye);
+	//R_inv = R.completeOrthogonalDecomposition().pseudoInverse();
+    //R_inv = R.jacobiSvd().solve(Eye);
+	//R_inv = pseudoInverse(R);
+	
 	for (int i=0; i < nmics-1; i++){
 	b(i) = pow(R.row(i).norm(),2) - pow(c*tau(i),2);
 	f(i) = (c*c)*tau(i);
@@ -134,21 +161,28 @@ vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nm
   	}
     a1 = (R_inv*b).transpose()*(R_inv*b);
     a2 = (R_inv*b).transpose()*(R_inv*f);
+	//std::cout << "\n \n Rinv*f: " << R_inv*f << std::endl;
     a3 = (R_inv*f).transpose()*(R_inv*f);
-
+	//std::cout << "many_u:" << mic_ntde_raw_vx.head(15) << std::endl;
+	//std::cout << "Rinv " << R_inv << std::endl;
+	//std::cout<< "a1,2,3 "<< a1<< ", "<<a2<< ", "<<a3<<std::endl; 
     a_quad = a3 - pow(c,2);
-    b_quad = -1*a2;
-    c_quad = a1/4.0;		
-
+    b_quad = -1.0*a2;
+    c_quad = a1/4.0;
+	//std::cout << "a_quad" << a_quad << " b_quad " << b_quad << "c_quad" << c_quad << std::endl;	
+	//std::cout << "yy_pt1: " << pow(b_quad,2)<< " yy_pt2: " <<  4*a_quad*c_quad << std::endl;
+	//std::cout << "yy_pt1-pt2: " << pow(b_quad,2)-4*a_quad*c_quad << std::endl;
+	//std::cout<< "Potential: " << std::setprecision(12) << yy << ",  "<< zz << "\n" <<std::endl;
+	
     t_soln1 = (-b_quad + sqrt(pow(b_quad,2) - 4*a_quad*c_quad))/(2*a_quad);
     t_soln2 = (-b_quad - sqrt(pow(b_quad,2) - 4*a_quad*c_quad))/(2*a_quad);	
-
+	//std::cout << a_quad << ", "<< b_quad << ", "<<c_quad << ", "<< t_soln1 << ", " << t_soln2 << std::endl;
     solutions_vx(seq(0,2)) = R_inv*b*0.5 - (R_inv*f)*t_soln1;
 	solutions_vx(seq(0,2)) += mic0;
     solutions_vx(seq(3,5)) = R_inv*b*0.5 - (R_inv*f)*t_soln2;
 	solutions_vx(seq(3,5)) += mic0;
 	//std::cout << "Both Solutions" << solutions_vx << std::endl;
-	best_solution = choose_correct_solution(solutions_vx, tau*c, mic_ntde.head(nmics*3));
+	best_solution = choose_correct_solution(solutions_vx, tau*c,mic_ntde_raw_vx.head(nmics*3));
 	solution = to_vectdouble(best_solution);
 	return solution;
 }
@@ -226,11 +260,14 @@ vector<vector<double>> pll_sw_optim(vector<vector<double>> all_inputs, vector<in
 					}
 
 int main(){
-	
-	std::vector<double> qq {-0.52243083,  1.09867957, -2.40144351,  2.50031827,  0.4962326 ,
-        1.65670346, -2.85711394,  0.83103252,  0.18204941, -1.49302528,
-       -0.87956487, -0.99915339, -0.31283492,  0.66902459,  1.36570803,
-       -0.16360789,  0.04602658,  0.02142374,  0.0499198 };
+	std::cout << "starting" << std::endl;
+	std::vector<double> qq {3.79879879879879,-1.11611611611611,-3.83883883883883,
+								-0.745745745745745,-0.525525525525525,4.12912912912912,
+								0.765765765765765,1.59659659659659,1.18618618618618,
+								-2.57757757757757,0.125125125125125,4.88988988988988,
+								-1.28628628628628,-4.78978978978978,-2.37737737737737,
+								-0.0905304146393017,-2.31630692205105,-0.244370170276845,-0.270533433265002
+								};
 	//VectorXd mictde = to_VXd(qq);
 	
 	int n_mics = 5;

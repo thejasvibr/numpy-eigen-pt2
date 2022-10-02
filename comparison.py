@@ -7,14 +7,13 @@ Created on Mon Sep 26 15:18:17 2022
 
 @author: thejasvi
 """
-import glob
 import numpy as np 
 import time
 from joblib import Parallel, delayed
 import os 
 import tqdm
 compile_start = time.perf_counter_ns()/1e9
-os.environ['EXTRA_CLING_ARGS'] = '-fopenmp'
+os.environ['EXTRA_CLING_ARGS'] = '-fopenmp -O2'
 pch_path = os.getcwd()
 #import cppyy_backend.loader as l
 #l.set_cling_compile_options(True)
@@ -30,9 +29,9 @@ cppyy.add_include_path('../np_vs_eigen/eigen')
 cppyy.include('sw2002_vectorbased.cpp')
 compile_stop = time.perf_counter_ns()/1e9
 print(f'{compile_stop-compile_start} s for compilation')
-np.random.seed(8239)
-#%%
-from sw2002_vectorbased_pll import sw_matrix_optim
+
+
+from sw2002_vectorbased_pll import sw_matrix_optim as swo_py
 # make neat wrapper. 
 
 def cppyy_sw2002(micntde, nmics):
@@ -40,8 +39,8 @@ def cppyy_sw2002(micntde, nmics):
                                        nmics)
     return np.array(as_Vxd, dtype=np.float64)
 
-nruns = int(5e3)
-np.random.seed(8239)
+nruns = int(1e5)
+np.random.seed(569)
 nmics = 5
 ncols = nmics*3 + nmics-1
 
@@ -69,32 +68,55 @@ def pll_make_mock_data(nmics, nruns):
     outputs = Parallel(n_jobs=num_cores)(delayed(make_block_mock_data)(nmics, blocksize) for blocksize in splits)
     sim_data = np.row_stack([each[0] for each in outputs])
     sources = np.row_stack([each[1] for each in outputs])
+    
     return sim_data, sources
 
 # make mock data
 print('Making sim daa')
 many_u, sources = pll_make_mock_data(nmics, nruns)
 print('Done w sim data')
-#%% Parallelise the creationg of mock data.
-# many_u = np.zeros((nruns,ncols))
-# sources = np.zeros((nruns,3))
-# for i in range(nruns):
-#     many_u[i,:], thissource = make_mock_data(nmics)
-#     sources[i,:] = thissource
+
+print('First cppyy run')
+#prob_u = np.loadtxt('many_u_1051_fails.csv')
+# FOR SEED 569 INDEX 303 CREATES CPP ERROR on Win10 laptop
 ii = cppyy_sw2002(many_u[0,:], nmics)
+print('End cppyy run')
 #%%
-# 'Warm up' the cppyy function run by calling it once3. 
+# #'Warm up' the cppyy function run by calling it once3. 
 # serial_sta = time.perf_counter_ns()/1e9
-# for i in range(many_u.shape[0]):
+# all_out = []
+# for i in tqdm.trange(nruns):
 #     ##print(f'{i} index')
 #     try:
+        
 #         bb = cppyy_sw2002(many_u[i,:], nmics)
+#         all_out.append(bb)
 #     except:
-#         print(f'(Problem at {i})')    
+#         print(f'(Working till index {i})')    
 #         break
+# cpy_serial = np.array(all_out)
 # serial_stop = time.perf_counter_ns()/1e9
-#     #print(aa, bb)
+# all_serial = np.array(all_out)
 # print('Done with serial fun:', serial_stop-serial_sta)
+# problem_points = np.unique(np.argwhere(cpy_serial==-999)[:,0])
+# print(problem_points)
+# ind = problem_points[0]
+# # run the problem point
+# cppyy_sw2002(many_u[ind,:], nmics)
+# swo_py(many_u[ind,:], nmics)
+#     #%% Parameter set that throws off Eigen implementations:
+# tricky = np.array([-4.43944,  -1.60661,   4.00901,
+#                    5.63564,   1.22122, -4.16416,
+#                    1.12112,   6.18619,  -2.58258,
+#                    7.998,   0.17017, -0.950951,
+#                    -0.45045,  0.660661, -0.710711,
+#                    -7.10511,   -1.13221,   -5.10312, -0.0929367])
+# # get closest row
+# match_dist = np.apply_along_axis(np.linalg.norm, 1, many_u-tricky)
+# bestfit = np.argmin(match_dist)
+# print(f'{np.argmin(bestfit)}')
+# numpy_out_tricky = swo_py(tricky, nmics)
+# cpy_out_tricky = cppyy_sw2002(tricky, nmics)
 #%% Here let's also run the pll version. 
 
 def pll_cppyy_sw2002(many_micntde, many_nmics, num_cores, c):
@@ -117,14 +139,12 @@ print(f'OMP pll version takes: {pll_durn} s')
 # print(f'Pll vs Serial speedup : {avg_cpy/(pll_durn/nruns)}')
 
 #%%
-from joblib import Parallel, delayed
-
 def block_numpy_sw2002(many_micntde, many_nmics,c):
     rows, _ = many_micntde.shape
     solutions = np.zeros((rows, 3))
     
     for i in range(rows):
-        solutions[i,:] = sw_matrix_optim(many_micntde[i,:], many_nmics[i])
+        solutions[i,:] = swo_py(many_micntde[i,:], many_nmics[i])
     return solutions
 
 def pll_numpy_sw2002(many_micntde, many_nmics, c):
@@ -132,7 +152,7 @@ def pll_numpy_sw2002(many_micntde, many_nmics, c):
     indices = np.array_split(np.arange(many_micntde.shape[0]), numcores)
     blocks_micntde = [many_micntde[block,:] for block in indices]
     blocks_nmics = [many_nmics[block] for block in indices]
-    outputs = Parallel(n_jobs=numcores)(delayed(block_numpy_sw2002)(tde_block, nmic_block,c) for (tde_block, nmic_block) in zip(blocks_micntde, blocks_nmics))
+    outputs = Parallel(n_jobs=1)(delayed(block_numpy_sw2002)(tde_block, nmic_block,c) for (tde_block, nmic_block) in zip(blocks_micntde, blocks_nmics))
     all_out = np.row_stack(outputs)
     return all_out
 
@@ -150,4 +170,12 @@ print(f'C++ advantage is: {pll_np/pll_durn}')
     
 #%% Now check the accuracy of outputs
 cpy_error = np.array([np.linalg.norm(sources[each,:]-np.array(uu[each])) for each in range(nruns)])
+
+try:
+    if problem_points.size>0:
+        cpy_wooutliers = np.delete(cpy_error,problem_points)
+except:
+    problem_points =         
+
+
 np_error = np.array([np.linalg.norm(sources[each,:]-np_pll[each,:]) for each in range(nruns)])

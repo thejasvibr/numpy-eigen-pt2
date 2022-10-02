@@ -33,7 +33,7 @@ def sw_matrix_optim(mic_ntde_orig, nmics, c=343.0):
     
     # R_inv = np.linalg.pinv(R)
     R_inv,*_  = np.linalg.lstsq(R, np.eye(R.shape[0]), rcond=None)
-
+    #print(R_inv)
     Nrec_minus1 = R.shape[0]
     b = np.zeros(Nrec_minus1)
     f = np.zeros(Nrec_minus1)
@@ -46,24 +46,28 @@ def sw_matrix_optim(mic_ntde_orig, nmics, c=343.0):
 
     a1 = matmul(matmul(R_inv, b).T, matmul(R_inv,b))
     a2 = matmul(matmul(R_inv, b).T, matmul(R_inv,f))
+    #print(f'Rinv-f {matmul(R_inv,f)}')
     a3 = matmul(matmul(R_inv, f).T, matmul(R_inv,f))
     
-
+    
     a_quad = a3 - c**2
     b_quad = -a2
     c_quad = a1/4.0
-
+    #print(f"a_quad {a_quad}, b_quad {b_quad}, c_quad {c_quad}")
+    #print(f"a1,2,3: {a1,a2,a3}")
+    #print(f"yy_pt1: {b_quad**2 } yy_pt2 { 4*a_quad*c_quad }")
+    #print(f'Potential: {(b_quad**2) - 4*a_quad*c_quad}, {np.sqrt((b_quad**2) - 4*a_quad*c_quad)}')
     t_soln1 = (-b_quad + np.sqrt(b_quad**2 - 4*a_quad*c_quad))/(2*a_quad)
     t_soln2 = (-b_quad - np.sqrt(b_quad**2 - 4*a_quad*c_quad))/(2*a_quad)
-
+    
+    #print(a_quad, b_quad, c_quad, t_soln1, t_soln2, )
     s12 = np.zeros(6)
     s12[:3] = matmul(R_inv,b*0.5) - matmul(R_inv,f)*t_soln1
     s12[3:] = matmul(R_inv,b*0.5) - matmul(R_inv,f)*t_soln2
 
     s12[:3] += mic0
     s12[3:] += mic0
-    #print(s12)
-    final_solution = choose_correct_solution(s12, mic_ntde[:nmics*3].reshape(-1,3),
+    final_solution = choose_correct_solution(s12, mic_ntde_orig[:nmics*3].reshape(-1,3),
                                              tau*c)
     return final_solution
 
