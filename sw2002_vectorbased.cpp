@@ -117,6 +117,9 @@ vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nm
 	//std::cout<<"Miaow "<< std::endl;
 	Vector3d best_solution;
 	VectorXd mic_ntde_raw_vx = to_VXd(mic_ntde_raw);
+	//std::cout << "\n" << std::endl;
+	//std::cout << std::setprecision(15) << "mic_ntde_raw " << mic_ntde_raw_vx << std::endl;
+	//std::cout << "\n" << std::endl;
 	VectorXd mic_ntde = to_VXd(mic_ntde_raw);
 	VectorXd solutions_vx(6);
 	vector<double> solution(3);
