@@ -14,12 +14,19 @@ euclid = spl.distance.euclidean
 #np.random.seed(82319) 
 matmul = np.matmul
 
+def get_nmics(tde_data):
+    
+    if (tde_data.size+1) % 4 == 0:
+        return int((tde_data.size+1)/4)
+    else:
+        raise ValueError(f'{tde_data.size} columns input - unable to calculate Nmics')
 
-def sw_matrix_optim(mic_ntde_orig, nmics, c=343.0):
+def sw_matrix_optim(mic_ntde_orig, c=343.0):
     '''
     mic_ntde : 3*nmics + nmics-1
     The last nmics-1 entries are range differences in meters!!
     '''
+    nmics = get_nmics(mic_ntde_orig)
     mic_ntde = mic_ntde_orig.copy()
     #print(mic_ntde.shape)
     position_inds = nmics*3

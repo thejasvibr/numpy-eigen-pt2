@@ -23,26 +23,17 @@ using Eigen::ComputeThinU;
 using Eigen::ComputeThinV;
 using namespace std;
 
-/*
-// from http://eigen.tuxfamily.org/index.php?title=FAQ#Is_there_a_method_to_compute_the_.28Moore-Penrose.29_pseudo_inverse_.3F
-template<typename MatType>
-using PseudoInverseType = Eigen::Matrix<typename MatType::Scalar, MatType::ColsAtCompileTime, MatType::RowsAtCompileTime>;
 
-template<typename MatType>
-PseudoInverseType<MatType> pseudoInverse(const MatType &a, double epsilon = std::numeric_limits<double>::epsilon())
-{
-	using WorkingMatType = Eigen::Matrix<typename MatType::Scalar, Eigen::Dynamic, Eigen::Dynamic, 0,
-																			 MatType::MaxRowsAtCompileTime, MatType::MaxColsAtCompileTime>;
-	Eigen::BDCSVD<WorkingMatType> svd(a, Eigen::ComputeThinU | Eigen::ComputeThinV);
-	svd.setThreshold(epsilon*std::max(a.cols(), a.rows()));
-	Eigen::Index rank = svd.rank();
-	Eigen::Matrix<typename MatType::Scalar, Eigen::Dynamic, MatType::RowsAtCompileTime,
-								0, Eigen::BDCSVD<WorkingMatType>::MaxDiagSizeAtCompileTime, MatType::MaxRowsAtCompileTime>
-		tmp = svd.matrixU().leftCols(rank).adjoint();
-	tmp = svd.singularValues().head(rank).asDiagonal().inverse() * tmp;
-	return svd.matrixV().leftCols(rank) * tmp;
-}*/
-
+int get_nmics(const vector<double> tde_data){
+    
+    if ((tde_data.size()+1) % 4 == 0){
+		int nmics = (tde_data.size()+1)/4;
+		return nmics;}
+    else{
+	std::cout << "Invalid TDE vector: " << tde_data.size() << " elements." << std::endl;
+		throw std::invalid_argument( "Unable to calculate Nmics" );
+		}
+	}
 
 VectorXd to_VXd(const vector<double> &Vd){
 	VectorXd VXd(Vd.size());
@@ -104,7 +95,7 @@ VectorXd choose_correct_solution(VectorXd both_solutions, const VectorXd &ranged
 	}
 
 
-vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nmics, const double &c=343.0){
+vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const double &c=343.0){
 	/*
 	
 	mic_ntde is 1D vector<double> with nmics*3 + Nmics-1 entries. 
@@ -114,6 +105,7 @@ vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nm
 	
 	*/
 	//std::cout<<"Miaow "<< std::endl;
+	int nmics = get_nmics(mic_ntde_raw);
 	Vector3d best_solution;
 	VectorXd mic_ntde_raw_vx = to_VXd(mic_ntde_raw);
 	//std::cout << "\n" << std::endl;
@@ -189,80 +181,25 @@ vector<double> sw_matrix_optim(const vector<double> &mic_ntde_raw, const int &nm
 	return solution;
 }
 
-// for some reason cppyy throws an error if const double &c=343.0!
-vector<vector<double>> blockwise_sw_optim(const vector<vector<double>> &block_inputs, const vector<int> &block_nmics, const double c=343.0){
+vector<vector<double>> pll_sw_optim(const vector<vector<double>> &all_inputs, const int &num_cores, double c=343.0){
 	/*
-	Accepts a 'block' of mic-posns+TDEs as a vector<double>
+	The non-block based parallel implementation. Lets OMP do all the chunking instead of doing it explicitly. 
 	*/
-	vector<vector<double>> block_solutions(block_inputs.size());
-	for (int i=0; i<block_inputs.size(); i++){
-		block_solutions[i] = sw_matrix_optim(block_inputs[i], block_nmics[i], c);
-	}
-	return block_solutions;
-	}
 
-
-
-std::vector<std::vector<int>> split(const std::vector<int>& v, int Nsplit) {
-	// thanks to @Damien : https://stackoverflow.com/a/66173799/4955732
-    int n = v.size();
-    int size_max = n / Nsplit + (n % Nsplit != 0);
-    std::vector<std::vector<int>> split;
-    for (int ibegin = 0; ibegin < n; ibegin += size_max) {
-        int iend = ibegin + size_max;
-        if (iend > n) iend = n;
-        split.emplace_back (std::vector<int>(v.begin() + ibegin, v.begin() + iend));
-    }
-    return split;
-}
-
-vector<vector<double>> pll_sw_optim(vector<vector<double>> all_inputs, vector<int> &all_nmics, int num_cores, double c=343.0){
-	//Eigen::initParallel();
-	vector<vector<double>> flattened_output;
-	vector<vector<vector<double>>> all_block_outputs(num_cores);
-	
-	vector<vector<vector<double>>> blockwise_inputs(num_cores);
-	vector<vector<int>> blockwise_nummics(num_cores);
-	
-	// split up all_inputs and all_nmics according to num_cores
-	vector<int> all_indices(all_inputs.size());
-			
-	for (int i=0; i<all_inputs.size(); i++){
-		all_indices[i] = i;
-		}
-	
-	vector<vector<int>> blockwise_indices = split(all_indices, num_cores);
-	int inner_k = 0;
-	for (int block = 0; block < num_cores; block++) {
-		blockwise_inputs[block] = {};
-		blockwise_nummics[block] = {};
-		for (auto index : blockwise_indices[block]){
-			blockwise_inputs[block].push_back(all_inputs[index]);
-			blockwise_nummics[block].push_back(all_nmics[index]);
-			}
-		}
-
+	vector<vector<double>> flattened_output(all_inputs.size());
 	// Now run the parallelisable code
-	//omp_set_num_threads(num_cores);
 	#pragma omp parallel for
-	for (int block = 0; block < num_cores; block++){
-		all_block_outputs[block] = blockwise_sw_optim(blockwise_inputs[block], blockwise_nummics[block], c);
-		
+	for (int i = 0; i < all_inputs.size(); i++){
+		flattened_output[i] = sw_matrix_optim(all_inputs[i], c);
 		}
-	
-	flattened_output = {};
-	for (int block=0; block<num_cores; block++){
-		
-		for (auto solution : all_block_outputs[block]){
-			flattened_output.push_back(solution);
-		}
-	}
-	
+
 	return flattened_output;
 					}
 
+
 int main(){
 	std::cout << "starting" << std::endl;
+	
 	std::vector<double> qq {3.79879879879879,-1.11611611611611,-3.83883883883883,
 								-0.745745745745745,-0.525525525525525,4.12912912912912,
 								0.765765765765765,1.59659659659659,1.18618618618618,
@@ -270,8 +207,10 @@ int main(){
 								-1.28628628628628,-4.78978978978978,-2.37737737737737,
 								-0.0905304146393017,-2.31630692205105,-0.244370170276845,-0.270533433265002
 								};
+								
+	 std::cout << " Nmics " << get_nmics(qq) << std::endl;						
 	//VectorXd mictde = to_VXd(qq);
-	
+	/*
 	int n_mics = 5;
 	vector<double> output;
 	auto start = chrono::steady_clock::now();
@@ -321,7 +260,7 @@ int main(){
 	VectorXd correct_soln;
 	VectorXd bothsoln, tau, micxyz;
 	bothsoln = to_VXd(serial_out[0]);
-	std::cout << "Both Solns " << bothsoln << std::endl;
+	std::cout << "Both Solns " << bothsoln << std::endl;*/
 	
 	return 0;	
 }

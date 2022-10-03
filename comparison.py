@@ -28,20 +28,21 @@ cppyy.load_library('C:\\Users\\theja\\anaconda3\\Library\\bin\\libiomp5md.dll')
 cppyy.add_include_path('../np_vs_eigen/eigen')
 cppyy.include('sw2002_vectorbased.cpp')
 compile_stop = time.perf_counter_ns()/1e9
+vector = cppyy.gbl.std.vector
 print(f'{compile_stop-compile_start} s for compilation')
 
 
 from sw2002_vectorbased_pll import sw_matrix_optim as swo_py
 # make neat wrapper. 
 #%%
-def cppyy_sw2002(micntde, nmics):
+def cppyy_sw2002(micntde):
     as_Vxd = cppyy.gbl.sw_matrix_optim(cppyy.gbl.std.vector['double'](micntde.tolist()),
-                                       nmics)
+                                       )
     return np.array(as_Vxd, dtype=np.float64)
 
-nruns = int(1e4)
+nruns = int(1e6)
 np.random.seed(569)
-nmics = 5
+nmics = 25
 ncols = nmics*3 + nmics-1
 
 def make_mock_data(nmics):
@@ -83,7 +84,7 @@ print('Done w sim data')
 print('First cppyy run')
 #prob_u = np.loadtxt('many_u_1051_fails.csv')
 # FOR SEED 569 INDEX 303 CREATES CPP ERROR on Win10 laptop
-ii = cppyy_sw2002(many_u[0,:], nmics)
+ii = cppyy_sw2002(many_u[0,:])
 print('End cppyy run')
 
 #%%
@@ -94,7 +95,7 @@ for i in tqdm.trange(nruns):
     ##print(f'{i} index')
     try:
         
-        bb = cppyy_sw2002(many_u[i,:], nmics)
+        bb = cppyy_sw2002(many_u[i,:])
         all_out.append(bb)
     except:
         print(f'(Working till index {i})')    
@@ -109,55 +110,52 @@ try:
     print(problem_points)
     ind = problem_points[0]
     # run the problem point
-    cppyy_sw2002(many_u[ind,:], nmics)
-    swo_py(many_u[ind,:], nmics)
+    cppyy_sw2002(many_u[ind,:])
+    swo_py(many_u[ind,:])
     m303 = many_u[problem_points[0],:]
 except:
     pass
 
 #%% Here let's also run the pll version. 
 
-def pll_cppyy_sw2002(many_micntde, many_nmics, num_cores, c):
+def pll_cppyy_sw2002(many_micntde, num_cores, c):
     block_in = cppyy.gbl.std.vector[cppyy.gbl.std.vector['double']](many_micntde.shape[0])
-    block_mics = cppyy.gbl.std.vector[int](many_micntde.shape[0])
     
     for i in range(many_micntde.shape[0]):
         block_in[i] = cppyy.gbl.std.vector['double'](many_micntde[i,:].tolist())
-        block_mics[i] = int(many_nmics[i])
-    block_out = cppyy.gbl.pll_sw_optim(block_in, block_mics, num_cores, c)
+    block_out = cppyy.gbl.pll_sw_optim(block_in, num_cores, c)
     pred_sources = np.array([each for each in block_out])
     return pred_sources
+
 print('Starting pll cppyy run')
-many_mcs = np.tile(nmics, many_u.shape[0]).tolist()
 ncores = os.cpu_count()
 st = time.perf_counter_ns()
-uu = pll_cppyy_sw2002(many_u, many_mcs, ncores, 343.0)
+uu = pll_cppyy_sw2002(many_u, ncores, 343.0)
 stop = time.perf_counter_ns()
 pll_durn = (stop-st)/1e9
 print(f'OMP pll version takes: {pll_durn} s')
 # print(f'Pll vs Serial speedup : {avg_cpy/(pll_durn/nruns)}')
 
 #%%
-def block_numpy_sw2002(many_micntde, many_nmics,c):
+def block_numpy_sw2002(many_micntde,c):
     rows, _ = many_micntde.shape
     solutions = np.zeros((rows, 3))
     
     for i in range(rows):
-        solutions[i,:] = swo_py(many_micntde[i,:], many_nmics[i])
+        solutions[i,:] = swo_py(many_micntde[i,:])
     return solutions
 
-def pll_numpy_sw2002(many_micntde, many_nmics, c):
+def pll_numpy_sw2002(many_micntde, c):
     numcores = os.cpu_count();
     indices = np.array_split(np.arange(many_micntde.shape[0]), numcores)
     blocks_micntde = [many_micntde[block,:] for block in indices]
-    blocks_nmics = [many_nmics[block] for block in indices]
-    outputs = Parallel(n_jobs=numcores)(delayed(block_numpy_sw2002)(tde_block, nmic_block,c) for (tde_block, nmic_block) in zip(blocks_micntde, blocks_nmics))
+    outputs = Parallel(n_jobs=numcores)(delayed(block_numpy_sw2002)(tde_block,c) for tde_block in blocks_micntde)
     all_out = np.row_stack(outputs)
     return all_out
 
 print('Starting Numpy pll run')
 sta = time.perf_counter_ns()/1e9
-np_pll = pll_numpy_sw2002(many_u, np.tile(nmics, nruns), 343.0)
+np_pll = pll_numpy_sw2002(many_u, 343.0)
 sto = time.perf_counter_ns()/1e9
 pll_np = sto-sta
 print(f'Python Pll total durn: {sto-sta} s')
@@ -172,3 +170,5 @@ cpy_error = np.array([np.linalg.norm(sources[each,:]-uu[each,:]) for each in ran
 
 np_error = np.array([np.linalg.norm(sources[each,:]-np_pll[each,:]) for each in range(nruns)])
 print(f'CPY MAX {np.max(cpy_error)} NUMPY MAX: {np.max(np_error)}')
+
+print(f'Avg time pll cpp:{pll_durn/nruns}, np: {pll_np/nruns}')
