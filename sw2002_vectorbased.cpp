@@ -101,7 +101,6 @@ VectorXd choose_correct_solution(VectorXd both_solutions, const VectorXd &ranged
 		// BAD PRACTICE - BUT PUTTING IT NOW SO MY CODE CALLS DON'T ALWAYS CRASH COMPLETELY!
 		return to_VXd(vector<double>{-999,-999,-999});
 	}
-
 	}
 
 

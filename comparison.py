@@ -39,7 +39,7 @@ def cppyy_sw2002(micntde, nmics):
                                        nmics)
     return np.array(as_Vxd, dtype=np.float64)
 
-nruns = int(1e6)
+nruns = int(1e4)
 np.random.seed(569)
 nmics = 5
 ncols = nmics*3 + nmics-1
@@ -114,19 +114,7 @@ try:
     m303 = many_u[problem_points[0],:]
 except:
     pass
-    #%% Parameter set that throws off Eigen implementations:
-tricky = np.array([-4.43944,  -1.60661,   4.00901,
-                    5.63564,   1.22122, -4.16416,
-                    1.12112,   6.18619,  -2.58258,
-                    7.998,   0.17017, -0.950951,
-                    -0.45045,  0.660661, -0.710711,
-                    -7.10511,   -1.13221,   -5.10312, -0.0929367])
-# get closest row
-match_dist = np.apply_along_axis(np.linalg.norm, 1, many_u-tricky)
-bestfit = np.argmin(match_dist)
-print(f'{np.argmin(bestfit)}')
-numpy_out_tricky = swo_py(tricky, nmics)
-cpy_out_tricky = cppyy_sw2002(tricky, nmics)
+
 #%% Here let's also run the pll version. 
 
 def pll_cppyy_sw2002(many_micntde, many_nmics, num_cores, c):
@@ -137,7 +125,8 @@ def pll_cppyy_sw2002(many_micntde, many_nmics, num_cores, c):
         block_in[i] = cppyy.gbl.std.vector['double'](many_micntde[i,:].tolist())
         block_mics[i] = int(many_nmics[i])
     block_out = cppyy.gbl.pll_sw_optim(block_in, block_mics, num_cores, c)
-    return block_out
+    pred_sources = np.array([each for each in block_out])
+    return pred_sources
 print('Starting pll cppyy run')
 many_mcs = np.tile(nmics, many_u.shape[0]).tolist()
 ncores = os.cpu_count()
@@ -179,7 +168,7 @@ print(f' OMP C++ vs Joblib Python: {pll_durn , pll_np}')
 print(f'C++ advantage is: {pll_np/pll_durn}')
     
 #%% Now check the accuracy of outputs
-cpy_error = np.array([np.linalg.norm(sources[each,:]-np.array(uu[each])) for each in range(nruns)])
+cpy_error = np.array([np.linalg.norm(sources[each,:]-uu[each,:]) for each in range(nruns)])
 
 np_error = np.array([np.linalg.norm(sources[each,:]-np_pll[each,:]) for each in range(nruns)])
 print(f'CPY MAX {np.max(cpy_error)} NUMPY MAX: {np.max(np_error)}')
